@@ -1,0 +1,17 @@
+includes:
+    - vendor/larastan/larastan/extension.neon
+
+parameters:
+    level: 5
+
+    paths:
+        - app
+
+    ignoreErrors:
+        -
+            identifier: arguments.count
+            path: app/Infrastructure/Leadscaptain/LeadscaptainRateLimiter.php
+
+        -
+            identifier: argument.type
+            path: app/Infrastructure/Leadscaptain/LeadscaptainRateLimiter.php

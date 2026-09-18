@@ -4,91 +4,162 @@ declare(strict_types=1);
 
 namespace App\Infrastructure\Leadscaptain;
 
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\PendingRequest;
-use Illuminate\Http\Client\RequestException;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use RuntimeException;
 
 final class LeadscaptainClient
 {
     public function __construct(
         private readonly LeadscaptainRateLimiter $rateLimiter,
+        private readonly LeadscaptainRetryPolicy $retryPolicy,
     ) {
     }
 
     private function client(): PendingRequest
     {
         return Http::baseUrl(
-            rtrim((string) config('leadscaptain.base_url'), '/')
+            rtrim(
+                (string) config('leadscaptain.base_url'),
+                '/'
+            )
         )
             ->acceptJson()
             ->withHeaders([
-                'X-API-Key' => (string) config('leadscaptain.api_key'),
+                'X-API-Key' => (string) config(
+                    'leadscaptain.api_key'
+                ),
             ])
-            ->timeout((int) config('leadscaptain.timeout'));
+            ->timeout(
+                (int) config('leadscaptain.timeout')
+            );
     }
 
     /**
      * @return array<string, mixed>
      */
-    public function getLeads(int $page = 1, int $limit = 100): array
+    public function getLeads(
+        int $page = 1,
+        int $limit = 100
+    ): array {
+        $maxRetries = (int) config(
+            'leadscaptain.retry_times',
+            3
+        );
+
+        $maxAttempts = $maxRetries + 1;
+
+        for (
+            $attempt = 1;
+            $attempt <= $maxAttempts;
+            $attempt++
+        ) {
+            $this->rateLimiter->waitIfNeeded();
+
+            Log::channel('leadscaptain')->info(
+                'Leadscaptain request attempt',
+                [
+                    'attempt' => $attempt,
+                    'page' => $page,
+                    'limit' => $limit,
+                ]
+            );
+
+            try {
+                $response = $this->client()->get('/leads', [
+                    'page' => $page,
+                    'limit' => $limit,
+                ]);
+            } catch (ConnectionException $exception) {
+                Log::channel('leadscaptain')->warning(
+                    'Leadscaptain connection failure',
+                    [
+                        'attempt' => $attempt,
+                        'page' => $page,
+                        'message' => $exception->getMessage(),
+                    ]
+                );
+
+                if ($attempt >= $maxAttempts) {
+                    throw $exception;
+                }
+
+                $delay = $this->retryPolicy->delay($attempt);
+
+                $this->logRetry(
+                    $attempt,
+                    $delay,
+                    $page,
+                    $exception->getMessage()
+                );
+
+                $this->sleep($delay);
+
+                continue;
+            }
+
+            if ($response->successful()) {
+                return (array) $response->json();
+            }
+
+            if (!$this->isRetryable($response)) {
+                $response->throw();
+            }
+
+            if ($attempt >= $maxAttempts) {
+                $response->throw();
+            }
+
+            $delay = $this->retryPolicy->delay(
+                $attempt,
+                $response
+            );
+
+            $this->logRetry(
+                $attempt,
+                $delay,
+                $page,
+                'HTTP ' . $response->status()
+            );
+
+            $this->sleep($delay);
+        }
+
+        throw new RuntimeException(
+            'Leadscaptain request failed unexpectedly.'
+        );
+    }
+
+    private function isRetryable(Response $response): bool
     {
-        $this->rateLimiter->waitIfNeeded();
+        return $response->status() === 429
+            || $response->serverError();
+    }
 
-        return $this->client()
-            ->retry(
-                (int) config('leadscaptain.retry_times'),
-                function (
-                    int $attempt,
-                    \Throwable $exception
-                ): int {
-                    $delay = match ($attempt) {
-                        1 => 1000,
-                        2 => 5000,
-                        default => 30000,
-                    };
+    private function sleep(int $milliseconds): void
+    {
+        if ($milliseconds > 0) {
+            usleep($milliseconds * 1000);
+        }
+    }
 
-                    if ($exception instanceof RequestException) {
-                        $response = $exception->response;
-
-                        if ($response->status() === 429) {
-                            $retryAfter = $response->header('Retry-After');
-
-                            if (is_numeric($retryAfter)) {
-                                $delay = max(
-                                    0,
-                                    (int) $retryAfter * 1000
-                                );
-                            }
-                        }
-                    }
-
-                    Log::channel('leadscaptain')->warning(
-                        'Leadscaptain request retry',
-                        [
-                            'attempt' => $attempt,
-                            'delay_ms' => $delay,
-                            'message' => $exception->getMessage(),
-                        ]
-                    );
-
-                    return $delay;
-                },
-                function (\Throwable $exception): bool {
-                    if ($exception instanceof RequestException) {
-                        $status = $exception->response->status();
-
-                        return $status === 429 || $status >= 500;
-                    }
-
-                    return true;
-                },
-            )
-            ->get('/leads', [
+    private function logRetry(
+        int $attempt,
+        int $delay,
+        int $page,
+        string $reason
+    ): void {
+        Log::channel('leadscaptain')->warning(
+            'Leadscaptain request retry',
+            [
+                'attempt' => $attempt,
                 'page' => $page,
-                'limit' => $limit,
-            ])
-            ->throw()
-            ->json();
+                'delay_ms' => $delay,
+                'reason' => $reason,
+            ]
+        );
     }
 }

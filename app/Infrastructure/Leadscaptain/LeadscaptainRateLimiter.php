@@ -18,42 +18,77 @@ final class LeadscaptainRateLimiter
 
         while (true) {
             $now = microtime(true);
-            $windowStart = $now - self::WINDOW_SECONDS;
 
-            Redis::zremrangebyscore(
+            $script = <<<'LUA'
+                local now = tonumber(ARGV[1])
+                local window = tonumber(ARGV[2])
+                local limit = tonumber(ARGV[3])
+                local member = ARGV[4]
+
+                redis.call(
+                    'ZREMRANGEBYSCORE',
+                    KEYS[1],
+                    '-inf',
+                    now - window
+                )
+
+                local count = redis.call(
+                    'ZCARD',
+                    KEYS[1]
+                )
+
+                if count < limit then
+                    redis.call(
+                        'ZADD',
+                        KEYS[1],
+                        now,
+                        member
+                    )
+
+                    redis.call(
+                        'EXPIRE',
+                        KEYS[1],
+                        window + 5
+                    )
+
+                    return 0
+                end
+
+                local oldest = redis.call(
+                    'ZRANGE',
+                    KEYS[1],
+                    0,
+                    0,
+                    'WITHSCORES'
+                )
+
+                if #oldest == 0 then
+                    return 0
+                end
+
+                return tonumber(oldest[2])
+            LUA;
+
+            $oldestTimestamp = Redis::eval(
+                $script,
+                1,
                 $key,
-                '-inf',
-                $windowStart,
+                (string) $now,
+                (string) self::WINDOW_SECONDS,
+                (string) self::LIMIT,
+                bin2hex(random_bytes(16)),
             );
 
-            $count = Redis::zcard($key);
+            $oldestTimestamp = (float) $oldestTimestamp;
 
-            if ($count < self::LIMIT) {
-                Redis::zadd(
-                    $key,
-                    $now,
-                    uniqid('', true),
-                );
-
-                Redis::expire(
-                    $key,
-                    self::WINDOW_SECONDS + 5,
-                );
-
+            if ($oldestTimestamp === 0.0) {
                 return;
             }
 
-            $oldest = Redis::zrange($key, 0, 0, true);
-
-            if ($oldest === []) {
-                continue;
-            }
-
-            $oldestTimestamp = (float) array_values($oldest)[0];
-
             $sleepSeconds = max(
                 0,
-                ($oldestTimestamp + self::WINDOW_SECONDS) - microtime(true),
+                ($oldestTimestamp + self::WINDOW_SECONDS)
+                    - microtime(true),
             );
 
             if ($sleepSeconds > 0) {

@@ -41,4 +41,21 @@ final class ImportAllLeadsJobTest extends TestCase
                 === 'https://api.leadscaptain.com/leads?page=1&limit=100';
         });
     }
+
+    public function test_it_has_three_retries(): void
+    {
+        $job = new ImportAllLeadsJob();
+
+        $this->assertSame(3, $job->tries);
+    }
+
+    public function test_it_uses_the_expected_backoff_delays(): void
+    {
+        $job = new ImportAllLeadsJob();
+
+        $this->assertSame(
+            [60, 300, 1800],
+            $job->backoff()
+        );
+    }
 }

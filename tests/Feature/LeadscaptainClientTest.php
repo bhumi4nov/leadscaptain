@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Tests\Feature;
 
-use App\Infrastructure\Leadscaptain\LeadscaptainRateLimiter;
 use App\Infrastructure\Leadscaptain\LeadscaptainClient;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
@@ -29,17 +28,14 @@ final class LeadscaptainClientTest extends TestCase
                 'total_pages' => 1,
             ]);
 
-            $client = app(LeadscaptainClient::class);
-
-       /*     
-        $client = new LeadscaptainClient(
-            new LeadscaptainRateLimiter(),
-        );
-        */
+        $client = app(LeadscaptainClient::class);
 
         $response = $client->getLeads();
 
-        $this->assertSame('lead-1', $response['data'][0]['leadscaptain_id']);
+        $this->assertSame(
+            'lead-1',
+            $response['data'][0]['leadscaptain_id']
+        );
 
         Http::assertSentCount(2);
     }
@@ -80,5 +76,27 @@ final class LeadscaptainClientTest extends TestCase
         );
 
         Http::assertSentCount(2);
+    }
+
+    public function test_it_does_not_retry_client_errors(): void
+    {
+        Http::fake([
+            'https://api.leadscaptain.com/leads*' => Http::response(
+                [
+                    'message' => 'Bad request',
+                ],
+                400
+            ),
+        ]);
+
+        $client = app(LeadscaptainClient::class);
+
+        $this->expectException(
+            \Illuminate\Http\Client\RequestException::class
+        );
+
+        $client->getLeads();
+
+        Http::assertSentCount(1);
     }
 }

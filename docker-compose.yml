@@ -1,0 +1,50 @@
+services:
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: leadscaptain-app
+    working_dir: /var/www
+    volumes:
+      - .:/var/www
+    ports:
+      - "8080:8000"
+    depends_on:
+      - mysql
+      - redis
+
+  horizon:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: leadscaptain-horizon
+    working_dir: /var/www
+    volumes:
+      - .:/var/www
+    depends_on:
+      - mysql
+      - redis
+    command: php artisan horizon    
+
+  mysql:
+    image: mysql:8.4
+    container_name: leadscaptain-mysql
+    environment:
+      MYSQL_DATABASE: leadscaptain
+      MYSQL_USER: leadscaptain
+      MYSQL_PASSWORD: secret
+      MYSQL_ROOT_PASSWORD: root
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+
+  redis:
+    image: redis:7-alpine
+    container_name: leadscaptain-redis
+    ports:
+      - "6380:6379"
+
+volumes:
+  mysql_data:

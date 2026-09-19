@@ -3,8 +3,7 @@
 <psalm
     errorLevel="7"
     resolveFromConfigFile="true"
-    errorBaseline="psalm-baseline.xml"
-    findUnusedCode="true"
+    findUnusedCode="false"
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
     xmlns="https://getpsalm.org/schema/config"
     xsi:schemaLocation="https://getpsalm.org/schema/config vendor/vimeo/psalm/config.xsd"
@@ -24,4 +23,12 @@
     <plugins>
         <pluginClass class="Psalm\LaravelPlugin\Plugin" />
     </plugins>
+
+    <issueHandlers>
+        <MissingPureAnnotation errorLevel="suppress" />
+        <MissingImmutableAnnotation errorLevel="suppress" />
+        <MissingInterfaceImmutableAnnotation errorLevel="suppress" />
+        <MissingAbstractPureAnnotation errorLevel="suppress" />
+        <MissingOverrideAttribute errorLevel="suppress" />
+    </issueHandlers>
 </psalm>

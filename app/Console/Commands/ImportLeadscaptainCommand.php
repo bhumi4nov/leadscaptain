@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Console\Commands;
 
-use App\Application\Lead\ImportAllLeads;
+use App\Jobs\ImportAllLeadsJob;
 use Illuminate\Console\Command;
 
 final class ImportLeadscaptainCommand extends Command
@@ -13,16 +13,12 @@ final class ImportLeadscaptainCommand extends Command
 
     protected $description = 'Import leads from Leadscaptain';
 
-    public function handle(ImportAllLeads $importAllLeads): int
+    public function handle(): int
     {
-        $batch = $importAllLeads->execute();
+        ImportAllLeadsJob::dispatch();
 
         $this->info(
-            'Leadscaptain import started.'
-        );
-
-        $this->line(
-            'Batch ID: ' . $batch->id
+            'Leadscaptain import has been queued successfully.'
         );
 
         return self::SUCCESS;

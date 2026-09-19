@@ -50,6 +50,7 @@ jobs:
       LEADSCAPTAIN_BASE_URL: https://api.leadscaptain.com
       LEADSCAPTAIN_TIMEOUT: 30
       LEADSCAPTAIN_RETRY_TIMES: 3
+      LEADSCAPTAIN_CONCURRENCY: 10
 
     steps:
       - name: Checkout
@@ -66,6 +67,9 @@ jobs:
       - name: Validate Composer
         run: composer validate --strict
 
+      - name: Build Docker image
+        run: docker build -t leadscaptain:test .
+
       - name: Install dependencies
         run: composer install --no-interaction --prefer-dist --optimize-autoloader
 
@@ -77,6 +81,9 @@ jobs:
 
       - name: Run tests with coverage
         run: php artisan test --coverage --min=90
+
+      - name: Run Pint
+        run: vendor/bin/pint --test
 
       - name: Run PHPStan
         run: vendor/bin/phpstan analyse --memory-limit=512M

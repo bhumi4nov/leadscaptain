@@ -5,23 +5,36 @@ declare(strict_types=1);
 namespace App\Application\Lead;
 
 use App\Domain\Lead\LeadRepository;
-use App\Infrastructure\Leadscaptain\LeadscaptainClient;
 use App\Events\LeadImported;
+use App\Infrastructure\Leadscaptain\LeadscaptainClient;
 use Illuminate\Support\Facades\Event;
+use RuntimeException;
 
 final class ImportLeadPage
 {
     public function __construct(
-        private LeadscaptainClient $client,
-        private LeadRepository $repository,
+        private readonly LeadscaptainClient $client,
+        private readonly LeadRepository $repository,
     ) {
     }
 
-    public function execute(int $page = 1, int $limit = 100): LeadPageDTO
-    {
-        $response = $this->client->getLeads($page, $limit);
+    public function execute(
+        int $page = 1,
+        int $limit = 100
+    ): LeadPageDTO {
+        $responses = $this->client->getLeadsConcurrently(
+            pages: [$page],
+            limit: $limit,
+        );
 
-        $pageData = LeadPageDTO::fromArray($response);
+        $response = $responses[$page]
+            ?? throw new RuntimeException(
+                "Leadscaptain response for page {$page} was not returned."
+            );
+
+        $pageData = LeadPageDTO::fromArray(
+            $response->json()
+        );
 
         foreach ($pageData->leads as $leadDTO) {
             $lead = $leadDTO->toDomain();

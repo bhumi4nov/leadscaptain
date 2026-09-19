@@ -145,9 +145,9 @@ Import and save leads
 
 Page 1 is processed first so the application can determine how many pages are available.
 
-Pages 2 through the final page are dispatched as individual queue jobs.
+Pages 2 through the final page are dispatched as individual queue jobs. Each page import uses the client's bounded asynchronous HTTP-pool path, while Horizon runs multiple page jobs concurrently.
 
-This allows multiple Horizon workers to process pages concurrently instead of processing every page sequentially.
+The configured concurrency is 10 by default and can be changed through `LEADSCAPTAIN_CONCURRENCY`.
 
 ## Rate Limiting
 
@@ -294,13 +294,14 @@ Run tests with the required coverage:
 docker compose exec app php artisan test --coverage --min=90
 ```
 
-Current local result:
+Latest verified test run:
 
 ```text
-37 tests passed
-67 assertions
-91.1% coverage
+35 tests passed
+65 assertions
 ```
+
+CI enforces the assignment's 90% minimum coverage with `php artisan test --coverage --min=90`.
 
 The test suite covers:
 
@@ -359,7 +360,7 @@ LeadsCaptain-specific logs are stored in:
 storage/logs/leadscaptain-YYYY-MM-DD.log
 ```
 
-The dedicated log channel is used for LeadsCaptain integration retries and failures.
+The dedicated `leadscaptain` channel writes to stderr so the logs are visible in Docker and container orchestration environments.
 
 ## Security
 
@@ -380,15 +381,16 @@ docker compose exec app vendor/bin/phpstan analyse --memory-limit=512M
 docker compose exec app vendor/bin/psalm --no-cache
 ```
 
-Current local verification:
+Latest verified static checks:
 
 ```text
-Tests:       37 passed
-Assertions:  67
-Coverage:    91.1%
+Tests:       35 passed
+Assertions:  65
 PHPStan:     No errors
-Psalm:       No errors
+Psalm:       No errors found
 ```
+
+The CI workflow also runs Laravel Pint and builds the Docker image.
 
 ## Environment Setup
 
@@ -514,3 +516,14 @@ Before submitting the project, verify:
 [ ] API key is not committed
 [ ] README is up to date
 ```
+
+
+## Live API Proof
+
+The final review requires a live Leadscaptain API key. After the key is supplied, configure it only in `.env`, run the import through the queued command, verify Horizon processing and confirm the imported records in the `leads` table.
+
+No API secret is stored in the repository.
+
+## Deployment
+
+The repository contains a Docker image and CI build/test/static-analysis pipeline. A production deployment target and credentials were not specified in the technical-test brief, so the deploy step must be connected to the employer's target environment rather than inventing a provider-specific deployment.

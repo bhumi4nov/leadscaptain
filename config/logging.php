@@ -113,10 +113,14 @@ return [
         ],
 
         'leadscaptain' => [
-            'driver' => 'daily',
-            'path' => storage_path('logs/leadscaptain.log'),
+            'driver' => 'monolog',
             'level' => 'info',
-            'days' => 14,
+            'handler' => StreamHandler::class,
+            'formatter' => env('LOG_STDERR_FORMATTER'),
+            'with' => [
+                'stream' => 'php://stderr',
+            ],
+            'processors' => [PsrLogMessageProcessor::class],
         ],
 
         'errorlog' => [

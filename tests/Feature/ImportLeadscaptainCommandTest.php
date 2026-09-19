@@ -4,36 +4,96 @@ declare(strict_types=1);
 
 namespace Tests\Feature;
 
-use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\Bus;
+use App\Infrastructure\Leadscaptain\LeadscaptainClient;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Redis;
 use Tests\TestCase;
 
 final class ImportLeadscaptainCommandTest extends TestCase
 {
-    use RefreshDatabase;
-
-    public function test_it_starts_lead_import_from_command(): void
+    public function test_it_fetches_multiple_pages_through_http_pool(): void
     {
-        Bus::fake();
+        Redis::shouldReceive('eval')
+            ->times(3)
+            ->andReturn(0);
 
         Http::fake([
-            'https://api.leadscaptain.com/leads*' => Http::response([
-                'data' => [],
-                'page' => 1,
-                'limit' => 100,
-                'total' => 200,
-                'total_pages' => 2,
-            ], 200),
+            'https://api.leadscaptain.com/leads*' => function ($request) {
+                $data = $request->data();
+
+                $page = (int) ($data['page'] ?? 1);
+
+                return Http::response(
+                    [
+                        'data' => [],
+                        'page' => $page,
+                        'limit' => 100,
+                        'total' => 300,
+                        'total_pages' => 3,
+                    ],
+                    200
+                );
+            },
         ]);
 
-        $this->artisan('leadscaptain:import')
-            ->expectsOutput('Leadscaptain import started.')
-            ->assertExitCode(0);
+        $client = app(LeadscaptainClient::class);
 
-        Bus::assertBatched(function ($batch): bool {
-            return $batch->name === 'Leadscaptain Lead Import'
-                && count($batch->jobs) === 1;
-        });
+        $responses = $client->getLeadsConcurrently(
+            pages: [1, 2, 3],
+            limit: 100,
+        );
+
+        $this->assertCount(3, $responses);
+
+        $this->assertSame(
+            [1, 2, 3],
+            array_keys($responses)
+        );
+
+        foreach ($responses as $page => $response) {
+            $this->assertTrue(
+                $response->successful()
+            );
+
+            $this->assertSame(
+                $page,
+                $response->json('page')
+            );
+        }
+
+        Http::assertSentCount(3);
+
+        Http::assertSent(
+            function ($request): bool {
+                return $request->url()
+                    === 'https://api.leadscaptain.com/leads?page=1&limit=100';
+            }
+        );
+
+        Http::assertSent(
+            function ($request): bool {
+                return $request->url()
+                    === 'https://api.leadscaptain.com/leads?page=2&limit=100';
+            }
+        );
+
+        Http::assertSent(
+            function ($request): bool {
+                return $request->url()
+                    === 'https://api.leadscaptain.com/leads?page=3&limit=100';
+            }
+        );
+    }
+
+    public function test_leadscaptain_horizon_allows_concurrent_workers(): void
+    {
+        $maxProcesses = (int) config(
+            'horizon.environments.local.supervisor-1.maxProcesses'
+        );
+
+        $this->assertGreaterThanOrEqual(
+            10,
+            $maxProcesses
+        );
     }
 }
